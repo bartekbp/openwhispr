@@ -79,6 +79,7 @@ class ClipboardManager {
     this.winFastPasteChecked = false;
     this.linuxFastPastePath = null;
     this.linuxFastPasteChecked = false;
+    this._ydotoolUsesNamedKeys = undefined;
   }
 
   _isWayland() {
@@ -292,6 +293,23 @@ class ClipboardManager {
       });
       return false;
     }
+  }
+
+  ydotoolUsesNamedKeys() {
+    if (this._ydotoolUsesNamedKeys !== undefined) return this._ydotoolUsesNamedKeys;
+    try {
+      const result = spawnSync("ydotool", ["key", "--help"], {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 2000,
+      });
+      const output = (result.stdout?.toString() || "") + (result.stderr?.toString() || "");
+      // ydotool 0.1.8 mentions "key sequence" and named modifiers (ctrl+v);
+      // ydotool 1.x uses numeric keycodes with :1/:0 press/release syntax
+      this._ydotoolUsesNamedKeys = output.includes("key sequence");
+    } catch {
+      this._ydotoolUsesNamedKeys = false;
+    }
+    return this._ydotoolUsesNamedKeys;
   }
 
   async pasteText(text, options = {}) {
@@ -989,11 +1007,14 @@ class ClipboardManager {
       );
     }
 
-    // Raw keycodes work across both ydotool 0.1.x and 1.0.x (key names silently fail on 1.0.x)
-    // 29 = KEY_LEFTCTRL, 42 = KEY_LEFTSHIFT, 47 = KEY_V
-    const ydotoolArgs = inTerminal
-      ? ["key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
-      : ["key", "29:1", "47:1", "47:0", "29:0"];
+    // ydotool 0.1.8 uses named keys (ctrl+v); 1.x uses numeric codes (29:1 47:1 47:0 29:0)
+    const ydotoolArgs = this.ydotoolUsesNamedKeys()
+      ? inTerminal
+        ? ["key", "ctrl+shift+v"]
+        : ["key", "ctrl+v"]
+      : inTerminal
+        ? ["key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
+        : ["key", "29:1", "47:1", "47:0", "29:0"];
 
     const wtypeEntry = canUseWtype
       ? [
