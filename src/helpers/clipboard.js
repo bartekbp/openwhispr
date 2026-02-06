@@ -295,6 +295,113 @@ class ClipboardManager {
     }
   }
 
+  async getActiveAppViaAtSpi() {
+    let dbus;
+    try {
+      dbus = require("dbus-next");
+    } catch {
+      return null;
+    }
+
+    const Message = dbus.Message;
+    let sessionBus;
+    let atspiBus;
+    try {
+      // Get AT-SPI bus address from session bus
+      sessionBus = dbus.sessionBus();
+      const a11yObj = await sessionBus.getProxyObject("org.a11y.Bus", "/org/a11y/bus");
+      const a11yIface = a11yObj.getInterface("org.a11y.Bus");
+      const atspiAddr = await a11yIface.GetAddress();
+      sessionBus.disconnect();
+      sessionBus = null;
+
+      // Connect to AT-SPI bus via env var override (dbus-next has no peerBus API)
+      const origAddr = process.env.DBUS_SESSION_BUS_ADDRESS;
+      process.env.DBUS_SESSION_BUS_ADDRESS = atspiAddr;
+      atspiBus = dbus.sessionBus();
+      process.env.DBUS_SESSION_BUS_ADDRESS = origAddr;
+
+      // Get registered apps from AT-SPI registry using low-level messages
+      // (AT-SPI endpoints don't support standard D-Bus introspection)
+      const childrenReply = await atspiBus.call(
+        new Message({
+          destination: "org.a11y.atspi.Registry",
+          path: "/org/a11y/atspi/accessible/root",
+          interface: "org.a11y.atspi.Accessible",
+          member: "GetChildren",
+          signature: "",
+          body: [],
+        })
+      );
+      const apps = childrenReply.body[0];
+
+      for (const [busName] of apps) {
+        try {
+          // Get app's child windows
+          const appChildrenReply = await atspiBus.call(
+            new Message({
+              destination: busName,
+              path: "/org/a11y/atspi/accessible/root",
+              interface: "org.a11y.atspi.Accessible",
+              member: "GetChildren",
+              signature: "",
+              body: [],
+            })
+          );
+          const children = appChildrenReply.body[0];
+
+          for (const [childBus, childPath] of children.slice(0, 5)) {
+            try {
+              const stateReply = await atspiBus.call(
+                new Message({
+                  destination: childBus,
+                  path: childPath,
+                  interface: "org.a11y.atspi.Accessible",
+                  member: "GetState",
+                  signature: "",
+                  body: [],
+                })
+              );
+              const state = stateReply.body[0];
+              // ACTIVE is bit 1 in the state bitfield
+              if (state[0] & 2) {
+                const nameReply = await atspiBus.call(
+                  new Message({
+                    destination: busName,
+                    path: "/org/a11y/atspi/accessible/root",
+                    interface: "org.freedesktop.DBus.Properties",
+                    member: "Get",
+                    signature: "ss",
+                    body: ["org.a11y.atspi.Accessible", "Name"],
+                  })
+                );
+                const appName = nameReply.body[0].value.toLowerCase();
+                atspiBus.disconnect();
+                return appName;
+              }
+            } catch {
+              // Skip children that fail
+            }
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      atspiBus.disconnect();
+    } catch (err) {
+      debugLogger.debug("AT-SPI detection failed", { error: err.message }, "clipboard");
+      if (sessionBus) {
+        try { sessionBus.disconnect(); } catch {}
+      }
+      if (atspiBus) {
+        try { atspiBus.disconnect(); } catch {}
+      }
+    }
+
+    return null;
+  }
+
   ydotoolUsesNamedKeys() {
     if (this._ydotoolUsesNamedKeys !== undefined) return this._ydotoolUsesNamedKeys;
     try {
@@ -960,7 +1067,7 @@ class ClipboardManager {
     }
 
     // Terminals use Ctrl+Shift+V instead of Ctrl+V
-    const isTerminal = () => {
+    const isTerminal = async () => {
       if (xdotoolWindowClass) {
         const isTerminalWindow = terminalClasses.some((term) => xdotoolWindowClass.includes(term));
         if (isTerminalWindow) {
@@ -985,11 +1092,27 @@ class ClipboardManager {
             }
           }
         }
-      } catch {}
+      } catch {
+        // Detection failed, try AT-SPI fallback
+      }
+
+      // AT-SPI fallback for GNOME Wayland where xdotool/kdotool can't see native windows
+      if (isWayland) {
+        const appName = await this.getActiveAppViaAtSpi();
+        if (appName) {
+          const isTerminalApp = terminalClasses.some((term) => appName.includes(term));
+          debugLogger.debug("AT-SPI active app", { appName, isTerminalApp }, "clipboard");
+          if (isTerminalApp) {
+            this.safeLog(`🖥️ Terminal detected via AT-SPI: ${appName}`);
+          }
+          return isTerminalApp;
+        }
+      }
+
       return false;
     };
 
-    const inTerminal = isTerminal();
+    const inTerminal = await isTerminal();
     const pasteKeys = inTerminal ? "ctrl+shift+v" : "ctrl+v";
 
     const canUseWtype = isWayland && isWlroots;
