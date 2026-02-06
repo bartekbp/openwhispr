@@ -376,8 +376,25 @@ class ClipboardManager {
                   })
                 );
                 const appName = nameReply.body[0].value.toLowerCase();
+                // Window title is the Name of the ACTIVE frame element
+                let windowTitle = null;
+                try {
+                  const titleReply = await atspiBus.call(
+                    new Message({
+                      destination: childBus,
+                      path: childPath,
+                      interface: "org.freedesktop.DBus.Properties",
+                      member: "Get",
+                      signature: "ss",
+                      body: ["org.a11y.atspi.Accessible", "Name"],
+                    })
+                  );
+                  windowTitle = titleReply.body[0].value;
+                } catch {
+                  // Window title not available
+                }
                 atspiBus.disconnect();
-                return appName;
+                return { appName, windowTitle };
               }
             } catch {
               // Skip children that fail
@@ -1098,7 +1115,8 @@ class ClipboardManager {
 
       // AT-SPI fallback for GNOME Wayland where xdotool/kdotool can't see native windows
       if (isWayland) {
-        const appName = await this.getActiveAppViaAtSpi();
+        const atspiResult = await this.getActiveAppViaAtSpi();
+        const appName = typeof atspiResult === "string" ? atspiResult : atspiResult?.appName;
         if (appName) {
           const isTerminalApp = terminalClasses.some((term) => appName.includes(term));
           debugLogger.debug("AT-SPI active app", { appName, isTerminalApp }, "clipboard");
@@ -1125,12 +1143,11 @@ class ClipboardManager {
       : ["key", pasteKeys];
 
     if (targetWindowId) {
-      this.safeLog(
-        `🎯 Targeting window ID ${targetWindowId} for paste (class: ${xdotoolWindowClass})`
-      );
+      this.safeLog(`🎯 Targeting window ID ${targetWindowId} for paste`);
     }
 
     // ydotool 0.1.8 uses named keys (ctrl+v); 1.x uses numeric codes (29:1 47:1 47:0 29:0)
+    // 29 = KEY_LEFTCTRL, 42 = KEY_LEFTSHIFT, 47 = KEY_V
     const ydotoolArgs = this.ydotoolUsesNamedKeys()
       ? inTerminal
         ? ["key", "ctrl+shift+v"]
@@ -1161,8 +1178,9 @@ class ClipboardManager {
       // wlroots (Sway, Hyprland, etc.): wtype is native; then xdotool for XWayland; ydotool last
       candidates = [...wtypeEntry, ...xdotoolEntry, ...ydotoolEntry];
     } else {
-      // GNOME, KDE, or unknown Wayland: xdotool for XWayland apps first; ydotool fallback; wtype last resort
-      candidates = [...xdotoolEntry, ...ydotoolEntry, ...wtypeEntry];
+      // GNOME, KDE, or unknown Wayland: ydotool first (works with native Wayland apps via uinput);
+      // xdotool only works with XWayland apps; wtype last resort
+      candidates = [...ydotoolEntry, ...xdotoolEntry, ...wtypeEntry];
     }
 
     const available = candidates.filter((c) => this.commandExists(c.cmd));
