@@ -62,12 +62,16 @@ class HotkeyManager {
   }
 
   getFailureReason(hotkey) {
-    if (globalShortcut.isRegistered(hotkey)) {
-      return {
-        reason: "already_registered",
-        message: i18nMain.t("hotkey.errors.alreadyRegistered", { hotkey }),
-        suggestions: this.getSuggestions(hotkey),
-      };
+    try {
+      if (globalShortcut.isRegistered(hotkey)) {
+        return {
+          reason: "already_registered",
+          message: i18nMain.t("hotkey.errors.alreadyRegistered", { hotkey }),
+          suggestions: this.getSuggestions(hotkey),
+        };
+      }
+    } catch {
+      // Invalid accelerator format - skip isRegistered check
     }
 
     if (process.platform === "linux") {
@@ -116,12 +120,18 @@ class HotkeyManager {
     // Note: We need to check isRegistered because on first run, currentHotkey is set to the
     // default value but it's not actually registered yet.
     const checkAccelerator = hotkey.startsWith("Fn+") ? hotkey.slice(3) : hotkey;
+    let isCurrentlyRegistered = false;
+    try {
+      isCurrentlyRegistered = globalShortcut.isRegistered(checkAccelerator);
+    } catch {
+      // Invalid accelerator format - treat as not registered
+    }
     if (
       hotkey === this.currentHotkey &&
       hotkey !== "GLOBE" &&
       !isRightSideModifier(hotkey) &&
       !isModifierOnlyHotkey(hotkey) &&
-      globalShortcut.isRegistered(checkAccelerator)
+      isCurrentlyRegistered
     ) {
       debugLogger.log(
         `[HotkeyManager] Hotkey "${hotkey}" is already the current hotkey and registered, no change needed`
@@ -541,7 +551,11 @@ class HotkeyManager {
   }
 
   isHotkeyRegistered(hotkey) {
-    return globalShortcut.isRegistered(hotkey);
+    try {
+      return globalShortcut.isRegistered(hotkey);
+    } catch {
+      return false;
+    }
   }
 }
 

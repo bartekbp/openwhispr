@@ -510,7 +510,11 @@ class IPCHandlers {
             `[IPC] Unregistering globalShortcut "${currentHotkey}" for hotkey capture mode`
           );
           const { globalShortcut } = require("electron");
-          globalShortcut.unregister(currentHotkey);
+          try {
+            globalShortcut.unregister(currentHotkey);
+          } catch (err) {
+            debugLogger.warn(`[IPC] Failed to unregister "${currentHotkey}": ${err.message}`);
+          }
         }
 
         // On Windows, stop the Windows key listener
@@ -533,17 +537,21 @@ class IPCHandlers {
           const accelerator = effectiveHotkey.startsWith("Fn+")
             ? effectiveHotkey.slice(3)
             : effectiveHotkey;
-          if (!globalShortcut.isRegistered(accelerator)) {
-            debugLogger.log(
-              `[IPC] Re-registering globalShortcut "${accelerator}" after capture mode`
-            );
-            const callback = this.windowManager.createHotkeyCallback();
-            const registered = globalShortcut.register(accelerator, callback);
-            if (!registered) {
-              debugLogger.warn(
-                `[IPC] Failed to re-register globalShortcut "${accelerator}" after capture mode`
+          try {
+            if (!globalShortcut.isRegistered(accelerator)) {
+              debugLogger.log(
+                `[IPC] Re-registering globalShortcut "${accelerator}" after capture mode`
               );
+              const callback = this.windowManager.createHotkeyCallback();
+              const registered = globalShortcut.register(accelerator, callback);
+              if (!registered) {
+                debugLogger.warn(
+                  `[IPC] Failed to re-register globalShortcut "${accelerator}" after capture mode`
+                );
+              }
             }
+          } catch (err) {
+            debugLogger.warn(`[IPC] Failed to re-register "${accelerator}": ${err.message}`);
           }
         }
 
