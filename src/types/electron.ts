@@ -372,6 +372,10 @@ declare global {
         contextBias?: string[];
       }) => Promise<{ text: string }>;
 
+      // ElevenLabs API key management
+      getElevenlabsKey?: () => Promise<string | null>;
+      saveElevenlabsKey?: (key: string) => Promise<void>;
+
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;
       saveCustomTranscriptionKey?: (key: string) => Promise<void>;

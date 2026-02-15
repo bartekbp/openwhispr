@@ -806,6 +806,51 @@ class IPCHandlers {
       }
     );
 
+    ipcMain.handle("get-elevenlabs-key", async () => {
+      return this.environmentManager.getElevenlabsKey();
+    });
+
+    ipcMain.handle("save-elevenlabs-key", async (event, key) => {
+      return this.environmentManager.saveElevenlabsKey(key);
+    });
+
+    // Proxy ElevenLabs transcription through main process (non-standard auth header)
+    ipcMain.handle(
+      "proxy-elevenlabs-transcription",
+      async (event, { audioBuffer, model, language, keyterms }) => {
+        const apiKey = this.environmentManager.getElevenlabsKey();
+        if (!apiKey) {
+          throw new Error("ElevenLabs API key not configured");
+        }
+
+        const formData = new FormData();
+        const audioBlob = new Blob([Buffer.from(audioBuffer)], { type: "audio/webm" });
+        formData.append("file", audioBlob, "audio.webm");
+        formData.append("model_id", model || "scribe_v2");
+        if (language && language !== "auto") {
+          formData.append("language_code", language);
+        }
+        if (keyterms && keyterms.length > 0) {
+          for (const term of keyterms.slice(0, 100)) {
+            formData.append("keywords", term);
+          }
+        }
+
+        const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+          method: "POST",
+          headers: { "xi-api-key": apiKey },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`ElevenLabs API Error: ${response.status} ${errorText}`);
+        }
+
+        return await response.json();
+      }
+    );
+
     ipcMain.handle("get-custom-transcription-key", async () => {
       return this.environmentManager.getCustomTranscriptionKey();
     });

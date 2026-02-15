@@ -150,6 +150,8 @@ interface TranscriptionSectionProps {
   setGroqApiKey: (key: string) => void;
   mistralApiKey: string;
   setMistralApiKey: (key: string) => void;
+  elevenlabsApiKey: string;
+  setElevenlabsApiKey: (key: string) => void;
   customTranscriptionApiKey: string;
   setCustomTranscriptionApiKey: (key: string) => void;
   cloudTranscriptionBaseUrl?: string;
@@ -185,6 +187,8 @@ function TranscriptionSection({
   setGroqApiKey,
   mistralApiKey,
   setMistralApiKey,
+  elevenlabsApiKey,
+  setElevenlabsApiKey,
   customTranscriptionApiKey,
   setCustomTranscriptionApiKey,
   cloudTranscriptionBaseUrl,
@@ -361,6 +365,8 @@ function TranscriptionSection({
           setGroqApiKey={setGroqApiKey}
           mistralApiKey={mistralApiKey}
           setMistralApiKey={setMistralApiKey}
+          elevenlabsApiKey={elevenlabsApiKey}
+          setElevenlabsApiKey={setElevenlabsApiKey}
           customTranscriptionApiKey={customTranscriptionApiKey}
           setCustomTranscriptionApiKey={setCustomTranscriptionApiKey}
           cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}
@@ -635,6 +641,7 @@ export default function SettingsPage({ activeSection = "general" }: SettingsPage
     geminiApiKey,
     groqApiKey,
     mistralApiKey,
+    elevenlabsApiKey,
     dictationKey,
     activationMode,
     setActivationMode,
@@ -660,6 +667,7 @@ export default function SettingsPage({ activeSection = "general" }: SettingsPage
     setGeminiApiKey,
     setGroqApiKey,
     setMistralApiKey,
+    setElevenlabsApiKey,
     customTranscriptionApiKey,
     setCustomTranscriptionApiKey,
     customReasoningApiKey,
@@ -1712,6 +1720,8 @@ export default function SettingsPage({ activeSection = "general" }: SettingsPage
             setGroqApiKey={setGroqApiKey}
             mistralApiKey={mistralApiKey}
             setMistralApiKey={setMistralApiKey}
+            elevenlabsApiKey={elevenlabsApiKey}
+            setElevenlabsApiKey={setElevenlabsApiKey}
             customTranscriptionApiKey={customTranscriptionApiKey}
             setCustomTranscriptionApiKey={setCustomTranscriptionApiKey}
             cloudTranscriptionBaseUrl={cloudTranscriptionBaseUrl}

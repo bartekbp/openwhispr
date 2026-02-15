@@ -58,6 +58,7 @@ export interface ApiKeySettings {
   geminiApiKey: string;
   groqApiKey: string;
   mistralApiKey: string;
+  elevenlabsApiKey: string;
   customTranscriptionApiKey: string;
   customReasoningApiKey: string;
 }
@@ -369,6 +370,11 @@ function useSettingsInternal() {
     deserialize: String,
   });
 
+  const [elevenlabsApiKey, setElevenlabsApiKeyLocal] = useLocalStorage("elevenlabsApiKey", "", {
+    serialize: String,
+    deserialize: String,
+  });
+
   // Theme setting
   const [theme, setTheme] = useLocalStorage<"light" | "dark" | "auto">("theme", "auto", {
     serialize: String,
@@ -437,6 +443,10 @@ function useSettingsInternal() {
       if (!mistralApiKey) {
         const envKey = await window.electronAPI.getMistralKey?.();
         if (envKey) setMistralApiKeyLocal(envKey);
+      }
+      if (!elevenlabsApiKey) {
+        const envKey = await window.electronAPI.getElevenlabsKey?.();
+        if (envKey) setElevenlabsApiKeyLocal(envKey);
       }
       if (!customTranscriptionApiKey) {
         const envKey = await window.electronAPI.getCustomTranscriptionKey?.();
@@ -524,6 +534,15 @@ function useSettingsInternal() {
       invalidateApiKeyCaches("mistral");
     },
     [setMistralApiKeyLocal, invalidateApiKeyCaches]
+  );
+
+  const setElevenlabsApiKey = useCallback(
+    (key: string) => {
+      setElevenlabsApiKeyLocal(key);
+      window.electronAPI?.saveElevenlabsKey?.(key);
+      invalidateApiKeyCaches();
+    },
+    [setElevenlabsApiKeyLocal, invalidateApiKeyCaches]
   );
 
   const setCustomTranscriptionApiKey = useCallback(
@@ -750,8 +769,9 @@ function useSettingsInternal() {
       if (keys.geminiApiKey !== undefined) setGeminiApiKey(keys.geminiApiKey);
       if (keys.groqApiKey !== undefined) setGroqApiKey(keys.groqApiKey);
       if (keys.mistralApiKey !== undefined) setMistralApiKey(keys.mistralApiKey);
+      if (keys.elevenlabsApiKey !== undefined) setElevenlabsApiKey(keys.elevenlabsApiKey);
     },
-    [setOpenaiApiKey, setAnthropicApiKey, setGeminiApiKey, setGroqApiKey, setMistralApiKey]
+    [setOpenaiApiKey, setAnthropicApiKey, setGeminiApiKey, setGroqApiKey, setMistralApiKey, setElevenlabsApiKey]
   );
 
   return {
@@ -781,6 +801,7 @@ function useSettingsInternal() {
     geminiApiKey,
     groqApiKey,
     mistralApiKey,
+    elevenlabsApiKey,
     dictationKey,
     theme,
     setUseLocalWhisper,
@@ -807,6 +828,7 @@ function useSettingsInternal() {
     setGeminiApiKey,
     setGroqApiKey,
     setMistralApiKey,
+    setElevenlabsApiKey,
     customTranscriptionApiKey,
     setCustomTranscriptionApiKey,
     customReasoningApiKey,

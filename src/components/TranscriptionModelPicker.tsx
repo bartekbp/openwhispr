@@ -194,6 +194,8 @@ interface TranscriptionModelPickerProps {
   setGroqApiKey: (key: string) => void;
   mistralApiKey: string;
   setMistralApiKey: (key: string) => void;
+  elevenlabsApiKey: string;
+  setElevenlabsApiKey: (key: string) => void;
   customTranscriptionApiKey?: string;
   setCustomTranscriptionApiKey?: (key: string) => void;
   cloudTranscriptionBaseUrl?: string;
@@ -206,6 +208,7 @@ const CLOUD_PROVIDER_TABS = [
   { id: "openai", name: "OpenAI" },
   { id: "groq", name: "Groq", recommended: true },
   { id: "mistral", name: "Mistral" },
+  { id: "elevenlabs", name: "ElevenLabs" },
   { id: "custom", name: "Custom" },
 ];
 
@@ -269,6 +272,8 @@ export default function TranscriptionModelPicker({
   setGroqApiKey,
   mistralApiKey,
   setMistralApiKey,
+  elevenlabsApiKey,
+  setElevenlabsApiKey,
   customTranscriptionApiKey = "",
   setCustomTranscriptionApiKey,
   cloudTranscriptionBaseUrl = "",
@@ -826,6 +831,7 @@ export default function TranscriptionModelPicker({
                           groq: "https://console.groq.com/keys",
                           mistral: "https://console.mistral.ai/api-keys",
                           openai: "https://platform.openai.com/api-keys",
+                          elevenlabs: "https://elevenlabs.io/app/settings/api-keys",
                         }[selectedCloudProvider] || "https://platform.openai.com/api-keys"
                       )}
                       className="text-[11px] text-white/70 hover:text-white transition-colors cursor-pointer"
@@ -835,12 +841,12 @@ export default function TranscriptionModelPicker({
                   </div>
                   <ApiKeyInput
                     apiKey={
-                      { groq: groqApiKey, mistral: mistralApiKey, openai: openaiApiKey }[
+                      { groq: groqApiKey, mistral: mistralApiKey, elevenlabs: elevenlabsApiKey, openai: openaiApiKey }[
                         selectedCloudProvider
                       ] || openaiApiKey
                     }
                     setApiKey={
-                      { groq: setGroqApiKey, mistral: setMistralApiKey, openai: setOpenaiApiKey }[
+                      { groq: setGroqApiKey, mistral: setMistralApiKey, elevenlabs: setElevenlabsApiKey, openai: setOpenaiApiKey }[
                         selectedCloudProvider
                       ] || setOpenaiApiKey
                     }

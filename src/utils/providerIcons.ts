@@ -7,6 +7,7 @@ import qwenIcon from "@/assets/icons/providers/qwen.svg";
 import groqIcon from "@/assets/icons/providers/groq.svg";
 import nvidiaIcon from "@/assets/icons/providers/nvidia.svg";
 import openaiOssIcon from "@/assets/icons/providers/openai-oss.svg";
+import elevenlabsIcon from "@/assets/icons/providers/elevenlabs.svg";
 
 export const PROVIDER_ICONS: Record<string, string> = {
   openai: openaiIcon,
@@ -19,13 +20,14 @@ export const PROVIDER_ICONS: Record<string, string> = {
   groq: groqIcon,
   nvidia: nvidiaIcon,
   "openai-oss": openaiOssIcon,
+  elevenlabs: elevenlabsIcon,
 };
 
 export function getProviderIcon(provider: string): string | undefined {
   return PROVIDER_ICONS[provider];
 }
 
-export const MONOCHROME_PROVIDERS = ["openai", "whisper", "anthropic", "openai-oss"] as const;
+export const MONOCHROME_PROVIDERS = ["openai", "whisper", "anthropic", "openai-oss", "elevenlabs"] as const;
 
 export function isMonochromeProvider(provider: string): boolean {
   return (MONOCHROME_PROVIDERS as readonly string[]).includes(provider);

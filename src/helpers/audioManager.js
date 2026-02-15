@@ -640,6 +640,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (!isValidApiKey(apiKey, "mistral")) {
         throw new Error("Mistral API key not found. Please set your API key in the Control Panel.");
       }
+    } else if (provider === "elevenlabs") {
+      apiKey = localStorage.getItem("elevenlabsApiKey");
+      if (!isValidApiKey(apiKey, "openai")) {
+        apiKey = await window.electronAPI.getElevenlabsKey?.();
+      }
+      if (!isValidApiKey(apiKey, "openai")) {
+        throw new Error("ElevenLabs API key not found. Please set your API key in the Control Panel.");
+      }
     } else if (provider === "groq") {
       // Prefer localStorage (user-entered via UI) over main process (.env)
       apiKey = localStorage.getItem("groqApiKey");
@@ -1319,6 +1327,38 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw new Error("No text transcribed - Mistral response was empty");
       }
 
+      // ElevenLabs uses xi-api-key auth (not Bearer) — proxy through main process
+      if (provider === "elevenlabs" && window.electronAPI?.proxyElevenlabsTranscription) {
+        const audioBuffer = await optimizedAudio.arrayBuffer();
+        const proxyData = { audioBuffer, model, language };
+
+        if (dictionaryPrompt) {
+          const tokens = dictionaryPrompt
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+            .slice(0, 100);
+          if (tokens.length > 0) {
+            proxyData.keyterms = tokens;
+          }
+        }
+
+        const result = await window.electronAPI.proxyElevenlabsTranscription(proxyData);
+        const proxyText = result?.text;
+
+        if (proxyText && proxyText.trim().length > 0) {
+          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
+          const reasoningStart = performance.now();
+          const text = await this.processTranscription(proxyText, "elevenlabs");
+          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
+
+          const source = (await this.isReasoningAvailable()) ? "elevenlabs-reasoned" : "elevenlabs";
+          return { success: true, text, source, timings };
+        }
+
+        throw new Error("No text transcribed - ElevenLabs response was empty");
+      }
+
       logger.debug(
         "Making transcription API request",
         {
@@ -1544,6 +1584,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         const isGroqModel = trimmedModel.startsWith("whisper-large-v3");
         const isOpenAIModel = trimmedModel.startsWith("gpt-4o") || trimmedModel === "whisper-1";
         const isMistralModel = trimmedModel.startsWith("voxtral-");
+        const isElevenlabsModel = trimmedModel.startsWith("scribe_");
 
         if (provider === "groq" && isGroqModel) {
           return trimmedModel;
@@ -1554,12 +1595,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         if (provider === "mistral" && isMistralModel) {
           return trimmedModel;
         }
+        if (provider === "elevenlabs" && isElevenlabsModel) {
+          return trimmedModel;
+        }
         // Model doesn't match provider - fall through to default
       }
 
       // Return provider-appropriate default
       if (provider === "groq") return "whisper-large-v3-turbo";
       if (provider === "mistral") return "voxtral-mini-latest";
+      if (provider === "elevenlabs") return "scribe_v2";
       return "gpt-4o-mini-transcribe";
     } catch (error) {
       return "gpt-4o-mini-transcribe";
@@ -1612,6 +1657,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         base = API_ENDPOINTS.GROQ_BASE;
       } else if (currentProvider === "mistral") {
         base = API_ENDPOINTS.MISTRAL_BASE;
+      } else if (currentProvider === "elevenlabs") {
+        base = "https://api.elevenlabs.io/v1";
       } else {
         // OpenAI or other standard providers
         base = API_ENDPOINTS.TRANSCRIPTION_BASE;
