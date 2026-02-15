@@ -375,6 +375,12 @@ declare global {
       // ElevenLabs API key management
       getElevenlabsKey?: () => Promise<string | null>;
       saveElevenlabsKey?: (key: string) => Promise<void>;
+      proxyElevenlabsTranscription?: (data: {
+        audioBuffer: ArrayBuffer;
+        model?: string;
+        language?: string;
+        keyterms?: string[];
+      }) => Promise<{ text: string }>;
 
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;

@@ -11,6 +11,7 @@ const { i18nMain, changeLanguage } = require("./i18nMain");
 const DeepgramStreaming = require("./deepgramStreaming");
 
 const MISTRAL_TRANSCRIPTION_URL = "https://api.mistral.ai/v1/audio/transcriptions";
+const ELEVENLABS_TRANSCRIPTION_URL = "https://api.elevenlabs.io/v1/speech-to-text";
 
 class IPCHandlers {
   constructor(managers) {
@@ -836,7 +837,7 @@ class IPCHandlers {
           }
         }
 
-        const response = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+        const response = await fetch(ELEVENLABS_TRANSCRIPTION_URL, {
           method: "POST",
           headers: { "xi-api-key": apiKey },
           body: formData,

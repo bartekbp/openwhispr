@@ -481,7 +481,7 @@ function useSettingsInternal() {
   }, 1000);
 
   const invalidateApiKeyCaches = useCallback(
-    (provider?: "openai" | "anthropic" | "gemini" | "groq" | "mistral" | "custom") => {
+    (provider?: "openai" | "anthropic" | "gemini" | "groq" | "mistral" | "elevenlabs" | "custom") => {
       if (provider) {
         getReasoningService().clearApiKeyCache(provider);
       }
@@ -540,7 +540,7 @@ function useSettingsInternal() {
     (key: string) => {
       setElevenlabsApiKeyLocal(key);
       window.electronAPI?.saveElevenlabsKey?.(key);
-      invalidateApiKeyCaches();
+      invalidateApiKeyCaches("elevenlabs");
     },
     [setElevenlabsApiKeyLocal, invalidateApiKeyCaches]
   );

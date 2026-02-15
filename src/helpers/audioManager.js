@@ -14,6 +14,7 @@ const PLACEHOLDER_KEYS = {
   openai: "your_openai_api_key_here",
   groq: "your_groq_api_key_here",
   mistral: "your_mistral_api_key_here",
+  elevenlabs: "your_elevenlabs_api_key_here",
 };
 
 const isValidApiKey = (key, provider = "openai") => {
@@ -642,10 +643,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       }
     } else if (provider === "elevenlabs") {
       apiKey = localStorage.getItem("elevenlabsApiKey");
-      if (!isValidApiKey(apiKey, "openai")) {
+      if (!isValidApiKey(apiKey, "elevenlabs")) {
         apiKey = await window.electronAPI.getElevenlabsKey?.();
       }
-      if (!isValidApiKey(apiKey, "openai")) {
+      if (!isValidApiKey(apiKey, "elevenlabs")) {
         throw new Error("ElevenLabs API key not found. Please set your API key in the Control Panel.");
       }
     } else if (provider === "groq") {
@@ -1658,7 +1659,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       } else if (currentProvider === "mistral") {
         base = API_ENDPOINTS.MISTRAL_BASE;
       } else if (currentProvider === "elevenlabs") {
-        base = "https://api.elevenlabs.io/v1";
+        base = API_ENDPOINTS.ELEVENLABS_BASE;
       } else {
         // OpenAI or other standard providers
         base = API_ENDPOINTS.TRANSCRIPTION_BASE;
