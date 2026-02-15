@@ -1083,105 +1083,43 @@ class ClipboardManager {
       }
     }
 
-    // Terminals use Ctrl+Shift+V instead of Ctrl+V
-    const isTerminal = async () => {
-      if (xdotoolWindowClass) {
-        const isTerminalWindow = terminalClasses.some((term) => xdotoolWindowClass.includes(term));
-        if (isTerminalWindow) {
-          this.safeLog(`🖥️ Terminal detected via xdotool: ${xdotoolWindowClass}`);
-        }
-        return isTerminalWindow;
-      }
+    // Shift+Insert is the universal Linux paste shortcut, works across:
+    // - standalone terminals (gnome-terminal, kitty, etc.)
+    // - IDE editors (VS Code, Codium, Cursor)
+    // - IDE integrated terminals (avoids Ctrl+V interception by CLI tools)
+    // - regular GUI apps (GTK, Qt, Electron)
+    const pasteKeys = "shift+Insert";
 
-      try {
-        if (this.commandExists("kdotool")) {
-          const windowIdResult = spawnSync("kdotool", ["getactivewindow"]);
-          if (windowIdResult.status === 0) {
-            const windowId = windowIdResult.stdout.toString().trim();
-            const classResult = spawnSync("kdotool", ["getwindowclassname", windowId]);
-            if (classResult.status === 0) {
-              const className = classResult.stdout.toString().toLowerCase().trim();
-              const isTerminalWindow = terminalClasses.some((term) => className.includes(term));
-              if (isTerminalWindow) {
-                this.safeLog(`🖥️ Terminal detected via kdotool: ${className}`);
-              }
-              return isTerminalWindow;
-            }
-          }
-        }
-      } catch {
-        // Detection failed, try AT-SPI fallback
-      }
-
-      // AT-SPI fallback for GNOME Wayland where xdotool/kdotool can't see native windows
-      if (isWayland) {
-        const atspiResult = await this.getActiveAppViaAtSpi();
-        const appName = typeof atspiResult === "string" ? atspiResult : atspiResult?.appName;
-        if (appName) {
-          const isTerminalApp = terminalClasses.some((term) => appName.includes(term));
-          debugLogger.debug("AT-SPI active app", { appName, isTerminalApp }, "clipboard");
-          if (isTerminalApp) {
-            this.safeLog(`🖥️ Terminal detected via AT-SPI: ${appName}`);
-          }
-          return isTerminalApp;
-        }
-      }
-
-      return false;
-    };
-
-    const inTerminal = await isTerminal();
-    const pasteKeys = inTerminal ? "ctrl+shift+v" : "ctrl+v";
-
-    const canUseWtype = isWayland && isWlroots;
-    const canUseYdotool = ydotoolDaemonRunning;
+    const canUseWtype = isWayland && !isGnome;
+    const canUseYdotool = isWayland;
     const canUseXdotool = isWayland ? xwaylandAvailable && xdotoolExists : xdotoolExists;
 
-    // windowactivate ensures the target window (not ours) receives the keystroke
-    const xdotoolArgs = targetWindowId
-      ? ["windowactivate", "--sync", targetWindowId, "key", pasteKeys]
+    // Capture target window before our window takes focus (xdotool only)
+    let fallbackTargetWindowId = null;
+    if (canUseXdotool) {
+      fallbackTargetWindowId = targetWindowId;
+    }
+
+    const xdotoolArgs = fallbackTargetWindowId
+      ? ["windowactivate", "--sync", fallbackTargetWindowId, "key", pasteKeys]
       : ["key", pasteKeys];
 
-    if (targetWindowId) {
-      this.safeLog(`🎯 Targeting window ID ${targetWindowId} for paste`);
+    if (fallbackTargetWindowId) {
+      this.safeLog(`🎯 Targeting window ID ${fallbackTargetWindowId} for paste`);
     }
 
-    // ydotool 0.1.8 uses named keys (ctrl+v); 1.x uses numeric codes (29:1 47:1 47:0 29:0)
-    // 29 = KEY_LEFTCTRL, 42 = KEY_LEFTSHIFT, 47 = KEY_V
+    // ydotool 0.1.8 uses named keys (shift+insert); 1.x uses numeric codes (42:1 110:1 ...)
     const ydotoolArgs = this.ydotoolUsesNamedKeys()
-      ? inTerminal
-        ? ["key", "ctrl+shift+v"]
-        : ["key", "ctrl+v"]
-      : inTerminal
-        ? ["key", "29:1", "42:1", "47:1", "47:0", "42:0", "29:0"]
-        : ["key", "29:1", "47:1", "47:0", "29:0"];
+      ? ["key", "shift+insert"]
+      : ["key", "42:1", "110:1", "110:0", "42:0"];
 
-    const wtypeEntry = canUseWtype
-      ? [
-          inTerminal
-            ? {
-                cmd: "wtype",
-                args: ["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
-              }
-            : { cmd: "wtype", args: ["-M", "ctrl", "-k", "v", "-m", "ctrl"] },
-        ]
-      : [];
-    const xdotoolEntry = canUseXdotool ? [{ cmd: "xdotool", args: xdotoolArgs }] : [];
-    const ydotoolEntry = canUseYdotool ? [{ cmd: "ydotool", args: ydotoolArgs }] : [];
-
-    // Compositor-aware priority ordering
-    let candidates;
-    if (!isWayland) {
-      // X11: xdotool is native and needs no daemon; ydotool as fallback
-      candidates = [...xdotoolEntry, ...ydotoolEntry];
-    } else if (isWlroots) {
-      // wlroots (Sway, Hyprland, etc.): wtype is native; then xdotool for XWayland; ydotool last
-      candidates = [...wtypeEntry, ...xdotoolEntry, ...ydotoolEntry];
-    } else {
-      // GNOME, KDE, or unknown Wayland: ydotool first (works with native Wayland apps via uinput);
-      // xdotool only works with XWayland apps; wtype last resort
-      candidates = [...ydotoolEntry, ...xdotoolEntry, ...wtypeEntry];
-    }
+    const candidates = [
+      ...(canUseWtype
+        ? [{ cmd: "wtype", args: ["-M", "shift", "-k", "Insert", "-m", "shift"] }]
+        : []),
+      ...(canUseYdotool ? [{ cmd: "ydotool", args: ydotoolArgs }] : []),
+      ...(canUseXdotool ? [{ cmd: "xdotool", args: xdotoolArgs }] : []),
+    ];
 
     const available = candidates.filter((c) => this.commandExists(c.cmd));
 
@@ -1192,7 +1130,6 @@ class ClipboardManager {
         availableTools: available.map((c) => c.cmd),
         targetWindowId,
         xdotoolWindowClass,
-        inTerminal,
         pasteKeys,
       },
       "clipboard"
@@ -1305,39 +1242,6 @@ class ClipboardManager {
     }
 
     debugLogger.error("All paste tools failed", { failedAttempts }, "clipboard");
-
-    // xdotool type fallback for terminals where Ctrl+Shift+V simulation fails
-    if (inTerminal && xdotoolExists && !isWayland) {
-      debugLogger.debug(
-        "Trying xdotool type fallback for terminal",
-        {
-          textLength: clipboard.readText().length,
-          targetWindowId,
-        },
-        "clipboard"
-      );
-      this.safeLog("🔄 Trying xdotool type fallback for terminal...");
-      const textToType = clipboard.readText();
-      const typeArgs = targetWindowId
-        ? ["windowactivate", "--sync", targetWindowId, "type", "--clearmodifiers", "--", textToType]
-        : ["type", "--clearmodifiers", "--", textToType];
-
-      try {
-        await pasteWith({ cmd: "xdotool", args: typeArgs });
-        this.safeLog("✅ Paste successful using xdotool type fallback");
-        debugLogger.info("Terminal paste successful via xdotool type", {}, "clipboard");
-        return;
-      } catch (error) {
-        const fallbackFailure = {
-          tool: "xdotool type",
-          args: typeArgs,
-          error: error?.message || String(error),
-        };
-        failedAttempts.push(fallbackFailure);
-        this.safeLog(`⚠️ xdotool type fallback failed:`, error?.message || error);
-        debugLogger.warn("xdotool type fallback failed", fallbackFailure, "clipboard");
-      }
-    }
 
     const failureSummary =
       failedAttempts.length > 0
