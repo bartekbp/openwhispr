@@ -17,6 +17,55 @@ const PLACEHOLDER_KEYS = {
   elevenlabs: "your_elevenlabs_api_key_here",
 };
 
+// Providers whose auth header the browser cannot send (x-api-key, xi-api-key)
+// go through a main-process proxy. Payload quirks live here as data so the
+// transcribe flow exists once; a missing bridge fails closed instead of
+// falling through to the generic Bearer request against the provider's
+// (or, worse, OpenAI's) endpoint.
+const PROXY_TRANSCRIPTION_PROVIDERS = {
+  mistral: {
+    label: "Mistral",
+    bridge: "proxyMistralTranscription",
+    buildPayload: ({ audioBuffer, model, language, dictionaryPrompt }) => {
+      const payload = { audioBuffer, model, language };
+      if (dictionaryPrompt) {
+        const tokens = dictionaryPrompt
+          .split(",")
+          .flatMap((entry) => entry.trim().split(/\s+/))
+          .filter(Boolean)
+          .slice(0, 100);
+        if (tokens.length > 0) payload.contextBias = tokens;
+      }
+      return payload;
+    },
+  },
+  elevenlabs: {
+    label: "ElevenLabs",
+    bridge: "proxyElevenlabsTranscription",
+    buildPayload: ({ audioBuffer, model, language, dictionaryPrompt }) => {
+      const payload = { audioBuffer, model, language };
+      if (dictionaryPrompt) {
+        const tokens = dictionaryPrompt
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .slice(0, 100);
+        if (tokens.length > 0) payload.keyterms = tokens;
+      }
+      return payload;
+    },
+  },
+};
+
+const CUSTOM_ENDPOINT_INVALID_MESSAGE =
+  "Custom transcription endpoint is not configured or invalid. Update it in Settings → Speech to Text.";
+
+const customEndpointInvalidError = () => {
+  const err = new Error(CUSTOM_ENDPOINT_INVALID_MESSAGE);
+  err.code = "CUSTOM_ENDPOINT_INVALID";
+  return err;
+};
+
 const isValidApiKey = (key, provider = "openai") => {
   if (!key || key.trim() === "") return false;
   const placeholder = PLACEHOLDER_KEYS[provider] || PLACEHOLDER_KEYS.openai;
@@ -647,7 +696,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         apiKey = await window.electronAPI.getElevenlabsKey?.();
       }
       if (!isValidApiKey(apiKey, "elevenlabs")) {
-        throw new Error("ElevenLabs API key not found. Please set your API key in the Control Panel.");
+        throw new Error(
+          "ElevenLabs API key not found. Please set your API key in the Control Panel."
+        );
       }
     } else if (provider === "groq") {
       // Prefer localStorage (user-entered via UI) over main process (.env)
@@ -1287,78 +1338,47 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         formData.append("stream", "true");
       }
 
+      const apiCallStart = performance.now();
+
+      const proxyProvider = PROXY_TRANSCRIPTION_PROVIDERS[provider];
+      if (proxyProvider) {
+        const bridge = window.electronAPI?.[proxyProvider.bridge];
+        if (typeof bridge !== "function") {
+          throw new Error(`${proxyProvider.label} transcription is unavailable in this window`);
+        }
+
+        const audioBuffer = await optimizedAudio.arrayBuffer();
+        const proxyData = proxyProvider.buildPayload({
+          audioBuffer,
+          model,
+          language,
+          dictionaryPrompt,
+        });
+
+        const result = await bridge(proxyData);
+        const proxyText = result?.text;
+
+        if (proxyText && proxyText.trim().length > 0) {
+          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
+          const reasoningStart = performance.now();
+          const text = await this.processTranscription(proxyText, provider);
+          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
+
+          const source = (await this.isReasoningAvailable()) ? `${provider}-reasoned` : provider;
+          return { success: true, text, source, timings };
+        }
+
+        throw new Error(`No text transcribed - ${proxyProvider.label} response was empty`);
+      }
+
+      // Resolved after proxy dispatch: throws CUSTOM_ENDPOINT_INVALID for an
+      // unconfigured Custom provider instead of routing audio to OpenAI.
       const endpoint = this.getTranscriptionEndpoint();
       const isCustomEndpoint =
         provider === "custom" ||
         (!endpoint.includes("api.openai.com") &&
           !endpoint.includes("api.groq.com") &&
           !endpoint.includes("api.mistral.ai"));
-
-      const apiCallStart = performance.now();
-
-      // Mistral uses x-api-key auth (not Bearer) and doesn't allow browser CORS — proxy through main process
-      if (provider === "mistral" && window.electronAPI?.proxyMistralTranscription) {
-        const audioBuffer = await optimizedAudio.arrayBuffer();
-        const proxyData = { audioBuffer, model, language };
-
-        if (dictionaryPrompt) {
-          const tokens = dictionaryPrompt
-            .split(",")
-            .flatMap((entry) => entry.trim().split(/\s+/))
-            .filter(Boolean)
-            .slice(0, 100);
-          if (tokens.length > 0) {
-            proxyData.contextBias = tokens;
-          }
-        }
-
-        const result = await window.electronAPI.proxyMistralTranscription(proxyData);
-        const proxyText = result?.text;
-
-        if (proxyText && proxyText.trim().length > 0) {
-          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
-          const reasoningStart = performance.now();
-          const text = await this.processTranscription(proxyText, "mistral");
-          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
-
-          const source = (await this.isReasoningAvailable()) ? "mistral-reasoned" : "mistral";
-          return { success: true, text, source, timings };
-        }
-
-        throw new Error("No text transcribed - Mistral response was empty");
-      }
-
-      // ElevenLabs uses xi-api-key auth (not Bearer) — proxy through main process
-      if (provider === "elevenlabs" && window.electronAPI?.proxyElevenlabsTranscription) {
-        const audioBuffer = await optimizedAudio.arrayBuffer();
-        const proxyData = { audioBuffer, model, language };
-
-        if (dictionaryPrompt) {
-          const tokens = dictionaryPrompt
-            .split(",")
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-            .slice(0, 100);
-          if (tokens.length > 0) {
-            proxyData.keyterms = tokens;
-          }
-        }
-
-        const result = await window.electronAPI.proxyElevenlabsTranscription(proxyData);
-        const proxyText = result?.text;
-
-        if (proxyText && proxyText.trim().length > 0) {
-          timings.transcriptionProcessingDurationMs = Math.round(performance.now() - apiCallStart);
-          const reasoningStart = performance.now();
-          const text = await this.processTranscription(proxyText, "elevenlabs");
-          timings.reasoningProcessingDurationMs = Math.round(performance.now() - reasoningStart);
-
-          const source = (await this.isReasoningAvailable()) ? "elevenlabs-reasoned" : "elevenlabs";
-          return { success: true, text, source, timings };
-        }
-
-        throw new Error("No text transcribed - ElevenLabs response was empty");
-      }
 
       logger.debug(
         "Making transcription API request",
@@ -1551,9 +1571,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           }
           throw error;
         } catch (fallbackError) {
-          throw new Error(
+          if (fallbackError === error) throw error;
+          const wrapped = new Error(
             `OpenAI API failed: ${error.message}. Local fallback also failed: ${fallbackError.message}`
           );
+          // Keep the config error's code through the re-wrap: the toast and any
+          // caller branching on CUSTOM_ENDPOINT_INVALID would otherwise see a
+          // plain Error and report a generic transcription failure.
+          if (error?.code) wrapped.code = error.code;
+          throw wrapped;
         }
       }
 
@@ -1626,6 +1652,28 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // Only use custom URL when provider is explicitly "custom"
     const isCustomEndpoint = currentProvider === "custom";
 
+    // Fail closed: a Custom provider with an empty, still-default, unparseable
+    // or insecure URL must not fall back to api.openai.com — that would send
+    // the audio and the custom API key to OpenAI.
+    if (isCustomEndpoint) {
+      const rawUrl = currentBaseUrl.trim();
+      const normalizedCustom = normalizeBaseUrl(rawUrl);
+      if (
+        !rawUrl ||
+        rawUrl === API_ENDPOINTS.TRANSCRIPTION_BASE ||
+        !normalizedCustom ||
+        !isSecureEndpoint(normalizedCustom)
+      ) {
+        logger.warn(
+          "STT endpoint: custom endpoint invalid, refusing to fall back",
+          { rawBaseUrl: currentBaseUrl, normalized: normalizedCustom },
+          "transcription"
+        );
+        this.cachedTranscriptionEndpoint = null;
+        throw customEndpointInvalidError();
+      }
+    }
+
     // Invalidate cache if provider or base URL changed
     if (
       this.cachedTranscriptionEndpoint &&
@@ -1653,7 +1701,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       // Use custom URL only when provider is "custom", otherwise use provider-specific defaults
       let base;
       if (isCustomEndpoint) {
-        base = currentBaseUrl.trim() || API_ENDPOINTS.TRANSCRIPTION_BASE;
+        base = currentBaseUrl.trim();
       } else if (currentProvider === "groq") {
         base = API_ENDPOINTS.GROQ_BASE;
       } else if (currentProvider === "mistral") {
@@ -1707,16 +1755,6 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         return cacheResult(API_ENDPOINTS.TRANSCRIPTION);
       }
 
-      // Only validate HTTPS for custom endpoints (known providers are already HTTPS)
-      if (isCustomEndpoint && !isSecureEndpoint(normalizedBase)) {
-        logger.warn(
-          "STT endpoint: HTTPS required, falling back to default",
-          { attemptedUrl: normalizedBase },
-          "transcription"
-        );
-        return cacheResult(API_ENDPOINTS.TRANSCRIPTION);
-      }
-
       let endpoint;
       if (/\/audio\/(transcriptions|translations)$/i.test(normalizedBase)) {
         endpoint = normalizedBase;
@@ -1732,11 +1770,13 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
       return cacheResult(endpoint);
     } catch (error) {
+      if (error?.code === "CUSTOM_ENDPOINT_INVALID") throw error;
       logger.error(
         "STT endpoint resolution failed",
         { error: error.message, stack: error.stack },
         "transcription"
       );
+      if (isCustomEndpoint) throw customEndpointInvalidError();
       this.cachedTranscriptionEndpoint = API_ENDPOINTS.TRANSCRIPTION;
       this.cachedEndpointProvider = currentProvider;
       this.cachedEndpointBaseUrl = currentBaseUrl;
