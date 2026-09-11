@@ -5,6 +5,7 @@ const https = require("https");
 const crypto = require("crypto");
 const AppUtils = require("../utils");
 const debugLogger = require("./debugLogger");
+const { extractAnthropicText, describeMissingAnthropicText } = require("./anthropicResponse");
 const GnomeShortcutManager = require("./gnomeShortcut");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
 const { i18nMain, changeLanguage } = require("./i18nMain");
@@ -971,12 +972,19 @@ class IPCHandlers {
             throw new Error("No model specified for Anthropic API call");
           }
 
+          // Claude models from Opus 4.7 onward reject `temperature` with a 400;
+          // the renderer derives support from the model registry.
+          const useTemperature = config?.supportsTemperature === true;
+          // Thinking-by-default models (Opus 5, Fable 5.x) spend part of
+          // max_tokens on thinking blocks, so keep a floor large enough that
+          // short dictations still get a text block back.
           const requestBody = {
             model: modelId,
             messages: [{ role: "user", content: userPrompt }],
             system: systemPrompt,
-            max_tokens: config?.maxTokens || Math.max(100, Math.min(text.length * 2, 4096)),
-            temperature: config?.temperature || 0.3,
+            max_tokens: config?.maxTokens || Math.max(1024, Math.min(text.length * 2, 8192)),
+            ...(useTemperature ? { temperature: config?.temperature ?? 0.3 } : {}),
+            ...(config?.supportsEffort ? { output_config: { effort: "low" } } : {}),
           };
 
           const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1005,7 +1013,11 @@ class IPCHandlers {
           }
 
           const data = await response.json();
-          return { success: true, text: data.content[0].text.trim() };
+          const outputText = extractAnthropicText(data);
+          if (outputText === null) {
+            throw new Error(describeMissingAnthropicText(data));
+          }
+          return { success: true, text: outputText };
         } catch (error) {
           debugLogger.error("Anthropic reasoning error:", error);
           return { success: false, error: error.message };
