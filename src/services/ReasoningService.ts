@@ -1,4 +1,9 @@
-import { getModelProvider, getCloudModel } from "../models/ModelRegistry";
+import {
+  getModelProvider,
+  getCloudModel,
+  cloudModelSupportsTemperature,
+  cloudModelSupportsEffort,
+} from "../models/ModelRegistry";
 import { BaseReasoningService, ReasoningConfig } from "./BaseReasoningService";
 import { SecureCache } from "../utils/SecureCache";
 import { withRetry, createApiRetryStrategy } from "../utils/retry";
@@ -716,6 +721,8 @@ class ReasoningService extends BaseReasoningService {
       const result = await window.electronAPI.processAnthropicReasoning(text, model, agentName, {
         ...config,
         systemPrompt,
+        supportsTemperature: cloudModelSupportsTemperature(model),
+        supportsEffort: cloudModelSupportsEffort(model),
       });
 
       const processingTime = Date.now() - startTime;

@@ -37,6 +37,10 @@ export interface CloudModelDefinition {
   description: string;
   descriptionKey?: string;
   disableThinking?: boolean;
+  // Claude models from Opus 4.7 onward reject `temperature` with a 400.
+  supportsTemperature?: boolean;
+  // `output_config.effort`; rejected by Sonnet 4.5 and Haiku 4.5.
+  supportsEffort?: boolean;
 }
 
 export interface CloudProviderData {
@@ -324,6 +328,20 @@ export function getCloudModel(modelId: string): CloudModelDefinition | undefined
     if (model) return model;
   }
   return undefined;
+}
+
+// Unknown model ids (custom endpoints, future releases) keep sending
+// temperature, matching the pre-registry behaviour.
+export function cloudModelSupportsTemperature(modelId: string): boolean {
+  return getCloudModel(modelId)?.supportsTemperature ?? true;
+}
+
+// Thinking is on by default on Opus 5 and the Fable models, so an
+// uncontrolled request can spend the whole max_tokens budget thinking and
+// return no text. Low effort suits reformatting a dictated transcript and
+// keeps latency down. Unknown ids send no effort at all.
+export function cloudModelSupportsEffort(modelId: string): boolean {
+  return getCloudModel(modelId)?.supportsEffort ?? false;
 }
 
 export function getParakeetModels(): ParakeetModelsMap {

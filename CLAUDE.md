@@ -237,9 +237,16 @@ Environment variables persisted to `.env` (via `saveAllKeysToEnvFile()`):
     - GPT-5 Nano (`gpt-5-nano`) - Ultra-fast, low latency
     - GPT-4.1 Series (`gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`) - Strong baseline with 1M context
   - **Anthropic** (Via IPC bridge to avoid CORS):
-    - Claude Sonnet 4.5 (`claude-sonnet-4-5`) - Balanced performance
+    - Claude Fable 5.1 / 5 (`claude-fable-5-1`, `claude-fable-5`) - Mythos-class flagship
+    - Claude Opus 5 / 4.8 / 4.7 / 4.6 (`claude-opus-5`, `claude-opus-4-8`, ...) - Opus line
+    - Claude Sonnet 5 / 4.6 / 4.5 (`claude-sonnet-5`, `claude-sonnet-4-6`, ...) - Sonnet line
     - Claude Haiku 4.5 (`claude-haiku-4-5`) - Fast with near-frontier intelligence
-    - Claude Opus 4.5 (`claude-opus-4-5`) - Most capable Claude model
+    - Models from Opus 4.7 onward reject `temperature`; `supportsTemperature: false` in the
+      registry makes the IPC handler omit it. `supportsEffort` (false only for Sonnet 4.5 and
+      Haiku 4.5) sends `output_config: { effort: "low" }` — thinking is on by default on
+      Opus 5 and Fable, so an uncontrolled request can spend all of `max_tokens` thinking.
+      Responses are read via `anthropicResponse.js` (all text blocks joined, not `content[0]`,
+      since a thinking block comes first on those models).
   - **Google Gemini** (Direct API integration):
     - Gemini 2.5 Pro (`gemini-2.5-pro`) - Most capable Gemini model
     - Gemini 2.5 Flash (`gemini-2.5-flash`) - High-performance with thinking

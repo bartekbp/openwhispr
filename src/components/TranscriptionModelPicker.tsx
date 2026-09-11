@@ -32,6 +32,18 @@ interface LocalModel {
   downloaded?: boolean;
 }
 
+const CLOUD_MODEL_MEMORY_KEY = "cloudTranscriptionModelByProvider";
+
+const readCloudModelMemory = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(CLOUD_MODEL_MEMORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
 interface LocalModelCardProps {
   modelId: string;
   name: string;
@@ -477,19 +489,41 @@ export default function TranscriptionModelPicker({
     [onModeChange, ensureValidCloudSelection]
   );
 
+  // Remember each provider's model across tab switches. Every provider shares
+  // the single cloudTranscriptionModel slot, so without this switching tabs
+  // overwrote the outgoing provider's choice and switching back reset it.
+  const rememberCloudModel = useCallback(
+    (providerId: string, modelId: string) => {
+      onCloudModelSelect(modelId);
+      if (!providerId || !modelId) return;
+      try {
+        const map = readCloudModelMemory();
+        map[providerId] = modelId;
+        localStorage.setItem(CLOUD_MODEL_MEMORY_KEY, JSON.stringify(map));
+      } catch {
+        // localStorage unavailable — memory is a convenience only
+      }
+    },
+    [onCloudModelSelect]
+  );
+
   const handleCloudProviderChange = useCallback(
     (providerId: string) => {
       onCloudProviderSelect(providerId);
       const provider = cloudProviders.find((p) => p.id === providerId);
+      const remembered = readCloudModelMemory()[providerId];
 
       if (providerId === "custom") {
-        onCloudModelSelect("whisper-1");
+        onCloudModelSelect(remembered || "whisper-1");
         return;
       }
 
       if (provider) {
         setCloudTranscriptionBaseUrl?.(provider.baseUrl);
-        if (provider.models?.length) {
+        const knownIds = (provider.models || []).map((m) => m.id);
+        if (remembered && knownIds.includes(remembered)) {
+          onCloudModelSelect(remembered);
+        } else if (provider.models?.length) {
           onCloudModelSelect(provider.models[0].id);
         }
       }
@@ -811,7 +845,7 @@ export default function TranscriptionModelPicker({
                   </label>
                   <Input
                     value={selectedCloudModel}
-                    onChange={(e) => onCloudModelSelect(e.target.value)}
+                    onChange={(e) => rememberCloudModel(selectedCloudProvider, e.target.value)}
                     placeholder="whisper-1"
                     className="h-8 text-sm"
                   />
@@ -841,14 +875,20 @@ export default function TranscriptionModelPicker({
                   </div>
                   <ApiKeyInput
                     apiKey={
-                      { groq: groqApiKey, mistral: mistralApiKey, elevenlabs: elevenlabsApiKey, openai: openaiApiKey }[
-                        selectedCloudProvider
-                      ] || openaiApiKey
+                      {
+                        groq: groqApiKey,
+                        mistral: mistralApiKey,
+                        elevenlabs: elevenlabsApiKey,
+                        openai: openaiApiKey,
+                      }[selectedCloudProvider] || openaiApiKey
                     }
                     setApiKey={
-                      { groq: setGroqApiKey, mistral: setMistralApiKey, elevenlabs: setElevenlabsApiKey, openai: setOpenaiApiKey }[
-                        selectedCloudProvider
-                      ] || setOpenaiApiKey
+                      {
+                        groq: setGroqApiKey,
+                        mistral: setMistralApiKey,
+                        elevenlabs: setElevenlabsApiKey,
+                        openai: setOpenaiApiKey,
+                      }[selectedCloudProvider] || setOpenaiApiKey
                     }
                     label=""
                     helpText=""
@@ -860,7 +900,7 @@ export default function TranscriptionModelPicker({
                   <ModelCardList
                     models={cloudModelOptions}
                     selectedModel={selectedCloudModel}
-                    onModelSelect={onCloudModelSelect}
+                    onModelSelect={(modelId) => rememberCloudModel(selectedCloudProvider, modelId)}
                     colorScheme={colorScheme === "purple" ? "purple" : "indigo"}
                   />
                 </div>
